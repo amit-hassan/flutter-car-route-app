@@ -49,6 +49,20 @@ android {
         targetSdkVersion 34
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
+
+        // Read properties from local.properties
+        Properties properties = new Properties()
+        if (rootProject.file('local.properties').exists()) {
+            properties.load(rootProject.file('local.properties').newDataInputStream())
+        }
+
+        manifestPlaceholders = [
+                googleMapsApiKey: properties.getProperty('googleMapsApiKey')
+        ]
+
+        manifestPlaceholders += [
+                applicationName: 'io.flutter.app.FlutterApplication'
+        ]
     }
 
     buildTypes {
