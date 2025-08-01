@@ -7,30 +7,42 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 
 import '../../shared/constants/map_styles.dart';
 
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:geolocator/geolocator.dart';
+
 class HomeController extends GetxController {
-  // Map
+  // Google Map
   late GoogleMapController mapController;
+  final initialPosition = const LatLng(23.8103, 90.4125);
+
+  // Markers
+  final markers = <Marker>[].obs;
   late BitmapDescriptor originIcon;
   late BitmapDescriptor destinationIcon;
-  final markers = <Marker>{}.obs;
-  final initialPosition = const LatLng(23.8103, 90.4125);
-  final originLatLng = Rxn<LatLng>();
-  final destinationLatLng = Rxn<LatLng>();
+  late BitmapDescriptor currentLocationIcon;
 
+  LatLng? originLatLng;
+  LatLng? destinationLatLng;
+  final currentPosition = Rxn<LatLng>();
 
   // Connectivity
   final isOffline = false.obs;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
-  // Location
-  final currentPosition = Rxn<LatLng>();
+  // Location Stream
+  StreamSubscription<Position>? _locationSub;
 
   @override
   void onInit() {
     super.onInit();
     _listenConnectivity();
-    _checkPermissionAndFetchLocation();
     _loadCustomMarkers();
+    _checkPermissionAndFetchLocation();
+    _startLiveLocationTracking();
   }
 
   void onMapCreated(GoogleMapController controller) {
@@ -38,7 +50,7 @@ class HomeController extends GetxController {
     _applyMapTheme();
   }
 
-  void _applyMapTheme() async {
+  void _applyMapTheme() {
     final isDarkMode = Get.isDarkMode;
     if (isDarkMode) {
       mapController.setMapStyle(darkMapStyle);
@@ -47,16 +59,24 @@ class HomeController extends GetxController {
     }
   }
 
+  /// Load custom marker icons
   Future<void> _loadCustomMarkers() async {
     originIcon = await BitmapDescriptor.fromAssetImage(
-        const ImageConfiguration(size: Size(48, 48)),
-        'assets/markers/origin_marker.png');
+      const ImageConfiguration(size: Size(64, 64)),
+      'assets/markers/origin_marker.png',
+    );
 
     destinationIcon = await BitmapDescriptor.fromAssetImage(
-        const ImageConfiguration(size: Size(48, 48)),
-        'assets/markers/destination_marker.png');
+      const ImageConfiguration(size: Size(64, 64)),
+      'assets/markers/destination_marker.png',
+    );
+
+    currentLocationIcon = BitmapDescriptor.defaultMarkerWithHue(
+      BitmapDescriptor.hueAzure,
+    );
   }
 
+  /// Listen to connectivity changes
   void _listenConnectivity() {
     _connectivitySub = Connectivity()
         .onConnectivityChanged
@@ -65,13 +85,13 @@ class HomeController extends GetxController {
           result.contains(ConnectivityResult.wifi);
       isOffline.value = !hasInternet;
 
-      // Auto refresh map markers if internet is restored
       if (!isOffline.value) {
         refreshMap();
       }
     });
   }
 
+  /// Request permission & fetch initial location
   Future<void> _checkPermissionAndFetchLocation() async {
     LocationPermission permission = await Geolocator.checkPermission();
 
@@ -86,72 +106,121 @@ class HomeController extends GetxController {
       currentPosition.value = LatLng(position.latitude, position.longitude);
 
       // Move camera to current position
-      mapController?.animateCamera(
-        CameraUpdate.newLatLng(currentPosition.value!),
+      mapController.animateCamera(
+        CameraUpdate.newLatLngZoom(currentPosition.value!, 16),
+      );
+
+      _updateMarkers();
+    }
+  }
+
+  /// Start live location tracking
+  void _startLiveLocationTracking() {
+    _locationSub = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10, // meters
+      ),
+    ).listen((Position position) {
+      currentPosition.value = LatLng(position.latitude, position.longitude);
+      _updateMarkers();
+    });
+  }
+
+  /// Handle user tapping on map
+  void addMarker(LatLng position) {
+    if (originLatLng == null) {
+      originLatLng = position;
+    } else if (destinationLatLng == null) {
+      destinationLatLng = position;
+      animateToBounds();
+    } else {
+      // Reset if 3rd tap
+      originLatLng = position;
+      destinationLatLng = null;
+    }
+    _updateMarkers();
+  }
+
+  /// Update all markers (origin, destination, current location)
+  void _updateMarkers() {
+    final newMarkers = <Marker>[];
+
+    // Current location
+    if (currentPosition.value != null) {
+      newMarkers.add(
+        Marker(
+          markerId: const MarkerId('current_location'),
+          position: currentPosition.value!,
+          icon: currentLocationIcon,
+        ),
       );
     }
-  }
 
-  void addMarker(LatLng position) {
-    if (originLatLng.value == null) {
-      originLatLng.value = position;
-      markers.add(Marker(
-        markerId: const MarkerId('origin'),
-        position: position,
-        icon: originIcon,
-      ));
-    } else if (destinationLatLng.value == null) {
-      destinationLatLng.value = position;
-      markers.add(Marker(
-        markerId: const MarkerId('destination'),
-        position: position,
-        icon: destinationIcon,
-      ));
-      animateToBounds(); // Fit camera to both markers
-    } else {
-      // Reset and start fresh
-      resetMarkers();
-      originLatLng.value = position;
-      markers.add(Marker(
-        markerId: const MarkerId('origin'),
-        position: position,
-        icon: originIcon,
-      ));
-      destinationLatLng.value = null;
+    // Origin
+    if (originLatLng != null) {
+      newMarkers.add(
+        Marker(
+          markerId: const MarkerId('origin'),
+          position: originLatLng!,
+          icon: originIcon,
+        ),
+      );
     }
+
+    // Destination
+    if (destinationLatLng != null) {
+      newMarkers.add(
+        Marker(
+          markerId: const MarkerId('destination'),
+          position: destinationLatLng!,
+          icon: destinationIcon,
+        ),
+      );
+    }
+
+    markers.value = newMarkers;
   }
 
-
+  /// Animate camera to fit both origin & destination
   void animateToBounds() {
-    if (markers.length < 2) return;
-
-    double minLat = markers.first.position.latitude;
-    double maxLat = markers.first.position.latitude;
-    double minLng = markers.first.position.longitude;
-    double maxLng = markers.first.position.longitude;
-
-    for (var marker in markers) {
-      minLat = marker.position.latitude < minLat ? marker.position.latitude : minLat;
-      maxLat = marker.position.latitude > maxLat ? marker.position.latitude : maxLat;
-      minLng = marker.position.longitude < minLng ? marker.position.longitude : minLng;
-      maxLng = marker.position.longitude > maxLng ? marker.position.longitude : maxLng;
-    }
+    if (originLatLng == null || destinationLatLng == null) return;
 
     LatLngBounds bounds = LatLngBounds(
-      southwest: LatLng(minLat, minLng),
-      northeast: LatLng(maxLat, maxLng),
+      southwest: LatLng(
+        originLatLng!.latitude < destinationLatLng!.latitude
+            ? originLatLng!.latitude
+            : destinationLatLng!.latitude,
+        originLatLng!.longitude < destinationLatLng!.longitude
+            ? originLatLng!.longitude
+            : destinationLatLng!.longitude,
+      ),
+      northeast: LatLng(
+        originLatLng!.latitude > destinationLatLng!.latitude
+            ? originLatLng!.latitude
+            : destinationLatLng!.latitude,
+        originLatLng!.longitude > destinationLatLng!.longitude
+            ? originLatLng!.longitude
+            : destinationLatLng!.longitude,
+      ),
     );
 
     mapController.animateCamera(CameraUpdate.newLatLngBounds(bounds, 80));
   }
 
-  void resetMarkers() => markers.clear();
-
-  void refreshMap() {
-    // For now, just reload markers or fetch routes
-    markers.refresh();
+  /// Reset markers
+  void resetMarkers() {
+    originLatLng = null;
+    destinationLatLng = null;
+    _updateMarkers();
   }
 
+  /// Force refresh (called on internet restore)
+  void refreshMap() {
+    _updateMarkers();
+  }
+
+  /// Center map on user
   void centerOnUser() {
     if (currentPosition.value != null) {
       mapController.animateCamera(
@@ -160,10 +229,10 @@ class HomeController extends GetxController {
     }
   }
 
-
   @override
   void onClose() {
     _connectivitySub?.cancel();
+    _locationSub?.cancel();
     super.onClose();
   }
 }
