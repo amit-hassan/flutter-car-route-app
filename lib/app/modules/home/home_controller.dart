@@ -1,238 +1,208 @@
 import 'dart:async';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_car_route_app/app/data/helpers/helpers.dart';
+import 'package:flutter_car_route_app/app/data/services/services.dart';
+import 'package:flutter_car_route_app/app/shared/constants/constants.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
-
-import '../../shared/constants/map_styles.dart';
-
-import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:get/get.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:geolocator/geolocator.dart';
 
 class HomeController extends GetxController {
-  // Google Map
-  late GoogleMapController mapController;
-  final initialPosition = const LatLng(23.8103, 90.4125);
+  // Dependencies (Injected via Binding)
+  final MapService mapService;
+  final LocationService locationService;
+  final RouteService routeService;
+  final ConnectivityHelper connectivityHelper;
+  final PermissionHelper permissionHelper;
 
-  // Markers
-  final markers = <Marker>[].obs;
-  late BitmapDescriptor originIcon;
-  late BitmapDescriptor destinationIcon;
-  late BitmapDescriptor currentLocationIcon;
+  HomeController({
+    required this.mapService,
+    required this.locationService,
+    required this.routeService,
+    required this.connectivityHelper,
+    required this.permissionHelper,
+  });
 
-  LatLng? originLatLng;
-  LatLng? destinationLatLng;
-  final currentPosition = Rxn<LatLng>();
-
-  // Connectivity
+  // Reactive State Variables (The Single Source of Truth)
   final isOffline = false.obs;
-  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  final origin = Rxn<LatLng>();
+  final destination = Rxn<LatLng>();
 
-  // Location Stream
+
   StreamSubscription<Position>? _locationSub;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  static const LatLng initialPosition = LatLng(23.8103, 90.4125); // Default position
+
+  // UI State Management
+  final RxBool isLoading = true.obs;
+  final RxnString errorMessage = RxnString();
+  final RxBool hasInternet = true.obs;
+  StreamSubscription? _connectivitySubscription;
+
+  // Map State
+  GoogleMapController? mapController;
+  final Rxn<LatLng> currentPosition = Rxn();
+  final RxSet<Marker> markers = <Marker>{}.obs;
+  final RxSet<Polyline> polylines = <Polyline>{}.obs;
+
+  // Route Info State
+  final RxnString distance = RxnString();
+  final RxnString duration = RxnString();
 
   @override
   void onInit() {
     super.onInit();
-    _listenConnectivity();
-    _loadCustomMarkers();
-    _checkPermissionAndFetchLocation();
-    _startLiveLocationTracking();
+    _initServices();
   }
 
-  void onMapCreated(GoogleMapController controller) {
-    mapController = controller;
-    _applyMapTheme();
+  Future<void> _initServices() async {
+    await mapService.initCustomMarkers();
+    _listenToConnectivity();
+    await _checkPermissionsAndGetLocation();
   }
 
-  void _applyMapTheme() {
-    final isDarkMode = Get.isDarkMode;
-    if (isDarkMode) {
-      mapController.setMapStyle(darkMapStyle);
-    } else {
-      mapController.setMapStyle(null);
-    }
-  }
 
-  /// Load custom marker icons
-  Future<void> _loadCustomMarkers() async {
-    originIcon = await BitmapDescriptor.fromAssetImage(
-      const ImageConfiguration(size: Size(64, 64)),
-      'assets/markers/origin_marker.png',
-    );
-
-    destinationIcon = await BitmapDescriptor.fromAssetImage(
-      const ImageConfiguration(size: Size(64, 64)),
-      'assets/markers/destination_marker.png',
-    );
-
-    currentLocationIcon = BitmapDescriptor.defaultMarkerWithHue(
-      BitmapDescriptor.hueAzure,
-    );
-  }
-
-  /// Listen to connectivity changes
-  void _listenConnectivity() {
-    _connectivitySub = Connectivity()
-        .onConnectivityChanged
-        .listen((List<ConnectivityResult> result) {
-      final hasInternet = result.contains(ConnectivityResult.mobile) ||
-          result.contains(ConnectivityResult.wifi);
-      isOffline.value = !hasInternet;
-
-      if (!isOffline.value) {
-        refreshMap();
+  void _listenToConnectivity() {
+    _connectivitySubscription = connectivityHelper.onConnectivityChanged.listen((isConnected) {
+      hasInternet.value = isConnected;
+      if (!isConnected) {
+        showError('No Internet Connection');
       }
     });
   }
 
-  /// Request permission & fetch initial location
-  Future<void> _checkPermissionAndFetchLocation() async {
-    LocationPermission permission = await Geolocator.checkPermission();
+  Future<void> _checkPermissionsAndGetLocation() async {
+    isLoading.value = true;
+    errorMessage.value = null;
 
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      permission = await Geolocator.requestPermission();
+    final status = await permissionHelper.checkLocationPermission();
+    switch (status) {
+      case LocationStatus.granted:
+        final position = await Geolocator.getCurrentPosition();
+        currentPosition.value = LatLng(position.latitude, position.longitude);
+        _animateToPosition(currentPosition.value!);
+        break;
+      case LocationStatus.serviceDisabled:
+        errorMessage.value = 'Please enable GPS/Location Services.';
+        break;
+      case LocationStatus.permissionDenied:
+        errorMessage.value = 'Location permission is required to use this feature.';
+        break;
+      case LocationStatus.permissionPermanentlyDenied:
+        errorMessage.value = 'Location permission is permanently denied. Please enable it in app settings.';
+        break;
     }
+    isLoading.value = false;
+  }
 
-    if (permission == LocationPermission.whileInUse ||
-        permission == LocationPermission.always) {
-      final position = await Geolocator.getCurrentPosition();
-      currentPosition.value = LatLng(position.latitude, position.longitude);
+  void onMapTap(LatLng position) {
+    if (markers.length >= 2) {
+      clearRoute();
+    }
+    _addMarker(position);
 
-      // Move camera to current position
-      mapController.animateCamera(
-        CameraUpdate.newLatLngZoom(currentPosition.value!, 16),
-      );
-
-      _updateMarkers();
+    if (markers.length == 2) {
+      drawRoute();
     }
   }
 
-  /// Start live location tracking
-  void _startLiveLocationTracking() {
-    _locationSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10, // meters
-      ),
-    ).listen((Position position) {
-      currentPosition.value = LatLng(position.latitude, position.longitude);
-      _updateMarkers();
-    });
+  void _addMarker(LatLng position) {
+    final id = 'marker_id_${markers.length}';
+    final label = markers.isEmpty ? 'Origin' : 'Destination';
+    final hue = markers.isEmpty ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueRed;
+
+    markers.add(Marker(
+      markerId: MarkerId(id),
+      position: position,
+      infoWindow: InfoWindow(title: label),
+      icon: BitmapDescriptor.defaultMarkerWithHue(hue),
+    ));
   }
 
-  /// Handle user tapping on map
-  void addMarker(LatLng position) {
-    if (originLatLng == null) {
-      originLatLng = position;
-    } else if (destinationLatLng == null) {
-      destinationLatLng = position;
-      animateToBounds();
-    } else {
-      // Reset if 3rd tap
-      originLatLng = position;
-      destinationLatLng = null;
+  Future<void> drawRoute() async {
+    if (markers.length < 2) return;
+    if (!await connectivityHelper.hasConnection()) {
+      showError('No Internet Connection');
+      return;
     }
-    _updateMarkers();
+
+    isLoading.value = true;
+    errorMessage.value = null;
+
+    final origin = markers.first.position;
+    final destination = markers.last.position;
+
+    try {
+      final directions = await routeService.getDirections(
+        originLat: origin.latitude,
+        originLng: origin.longitude,
+        destLat: destination.latitude,
+        destLng: destination.longitude,
+      );
+
+      distance.value = directions.distance;
+      duration.value = directions.duration;
+
+      polylines.add(Polyline(
+        polylineId: const PolylineId('route'),
+        color: Colors.blueAccent,
+        width: 5,
+        points: directions.polylinePoints,
+      ));
+    } catch (e) {
+      showError(e.toString());
+      // On error, remove the last added marker to allow re-selection
+      markers.remove(markers.last);
+    } finally {
+      isLoading.value = false;
+    }
   }
 
-  /// Update all markers (origin, destination, current location)
-  void _updateMarkers() {
-    final newMarkers = <Marker>[];
-
-    // Current location
-    if (currentPosition.value != null) {
-      newMarkers.add(
-        Marker(
-          markerId: const MarkerId('current_location'),
-          position: currentPosition.value!,
-          icon: currentLocationIcon,
-        ),
-      );
-    }
-
-    // Origin
-    if (originLatLng != null) {
-      newMarkers.add(
-        Marker(
-          markerId: const MarkerId('origin'),
-          position: originLatLng!,
-          icon: originIcon,
-        ),
-      );
-    }
-
-    // Destination
-    if (destinationLatLng != null) {
-      newMarkers.add(
-        Marker(
-          markerId: const MarkerId('destination'),
-          position: destinationLatLng!,
-          icon: destinationIcon,
-        ),
-      );
-    }
-
-    markers.value = newMarkers;
+  void clearRoute() {
+    markers.clear();
+    polylines.clear();
+    distance.value = null;
+    duration.value = null;
   }
 
-  /// Animate camera to fit both origin & destination
-  void animateToBounds() {
-    if (originLatLng == null || destinationLatLng == null) return;
-
-    LatLngBounds bounds = LatLngBounds(
-      southwest: LatLng(
-        originLatLng!.latitude < destinationLatLng!.latitude
-            ? originLatLng!.latitude
-            : destinationLatLng!.latitude,
-        originLatLng!.longitude < destinationLatLng!.longitude
-            ? originLatLng!.longitude
-            : destinationLatLng!.longitude,
-      ),
-      northeast: LatLng(
-        originLatLng!.latitude > destinationLatLng!.latitude
-            ? originLatLng!.latitude
-            : destinationLatLng!.latitude,
-        originLatLng!.longitude > destinationLatLng!.longitude
-            ? originLatLng!.longitude
-            : destinationLatLng!.longitude,
-      ),
+  void showError(String message) {
+    errorMessage.value = message;
+    Get.snackbar(
+      'Error',
+      message,
+      backgroundColor: Colors.red.withOpacity(0.8),
+      colorText: Colors.white,
+      snackPosition: SnackPosition.BOTTOM,
     );
-
-    mapController.animateCamera(CameraUpdate.newLatLngBounds(bounds, 80));
   }
 
-  /// Reset markers
-  void resetMarkers() {
-    originLatLng = null;
-    destinationLatLng = null;
-    _updateMarkers();
-  }
-
-  /// Force refresh (called on internet restore)
-  void refreshMap() {
-    _updateMarkers();
-  }
-
-  /// Center map on user
-  void centerOnUser() {
+  void onMapCreated(GoogleMapController controller) {
+    mapController = controller;
     if (currentPosition.value != null) {
-      mapController.animateCamera(
-        CameraUpdate.newLatLngZoom(currentPosition.value!, 16),
-      );
+      _animateToPosition(currentPosition.value!);
     }
+  }
+
+  void _animateToPosition(LatLng position, {double zoom = 14.0}) {
+    mapController?.animateCamera(CameraUpdate.newCameraPosition(
+      CameraPosition(target: position, zoom: zoom),
+    ));
   }
 
   @override
   void onClose() {
-    _connectivitySub?.cancel();
-    _locationSub?.cancel();
+    _connectivitySubscription?.cancel();
+    mapController?.dispose();
     super.onClose();
   }
+
+  // After (Public)
+  void animateToPosition(LatLng position, {double zoom = 14.0}) {
+    mapController?.animateCamera(CameraUpdate.newCameraPosition(
+      CameraPosition(target: position, zoom: zoom),
+    ));
+  }
+
+
 }
