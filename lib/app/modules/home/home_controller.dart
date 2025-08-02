@@ -8,13 +8,16 @@ import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 
-class HomeController extends GetxController {
+class HomeController extends GetxController with WidgetsBindingObserver{
   // Dependencies (Injected via Binding)
   final MapService mapService;
   final LocationService locationService;
   final RouteService routeService;
   final ConnectivityHelper connectivityHelper;
   final PermissionHelper permissionHelper;
+  Timer? _gpsCheckTimer;
+  final gpsStatus = Rxn<LocationStatus>();
+  Rx<LocationStatus> locationStatus = LocationStatus.granted.obs;
 
   HomeController({
     required this.mapService,
@@ -29,10 +32,6 @@ class HomeController extends GetxController {
   final origin = Rxn<LatLng>();
   final destination = Rxn<LatLng>();
 
-
-  StreamSubscription<Position>? _locationSub;
-  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
-  static const LatLng initialPosition = LatLng(23.8103, 90.4125); // Default position
 
   // UI State Management
   final RxBool isLoading = true.obs;
@@ -53,46 +52,76 @@ class HomeController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    WidgetsBinding.instance.addObserver(this);
     _initServices();
   }
 
   Future<void> _initServices() async {
     await mapService.initCustomMarkers();
     _listenToConnectivity();
-    await _checkPermissionsAndGetLocation();
+    await checkPermissionsAndGetLocation();
   }
 
 
   void _listenToConnectivity() {
-    _connectivitySubscription = connectivityHelper.onConnectivityChanged.listen((isConnected) {
+    _connectivitySubscription = connectivityHelper.onConnectivityChanged.listen((isConnected) async {
       hasInternet.value = isConnected;
+
       if (!isConnected) {
-        showError('No Internet Connection');
+        showNoInternetBanner();
+      } else {
+        hideNoInternetBanner();
+
+        // Auto-refresh only if error previously due to no internet
+        if (errorMessage.value?.contains("Internet") == true || markers.isEmpty) {
+          await checkPermissionsAndGetLocation();
+        }
       }
     });
   }
 
-  Future<void> _checkPermissionsAndGetLocation() async {
+  void showNoInternetBanner() {
+    Get.showSnackbar(
+      const GetSnackBar(
+        title: 'No Internet',
+        message: 'Please check your connection.',
+        backgroundColor: Colors.redAccent,
+        duration: Duration(days: 1),
+      ),
+    );
+  }
+
+  void hideNoInternetBanner() {
+    if (Get.isSnackbarOpen) {
+      Get.closeCurrentSnackbar();
+    }
+  }
+
+  Future<void> checkPermissionsAndGetLocation() async {
     isLoading.value = true;
     errorMessage.value = null;
 
     final status = await permissionHelper.checkLocationPermission();
+    locationStatus.value = status;
+
     switch (status) {
       case LocationStatus.granted:
         final position = await Geolocator.getCurrentPosition();
         currentPosition.value = LatLng(position.latitude, position.longitude);
         _animateToPosition(currentPosition.value!);
+        if (markers.length == 2) await drawRoute();
         break;
+
       case LocationStatus.serviceDisabled:
-        errorMessage.value = 'Please enable GPS/Location Services.';
+        errorMessage.value = AppStrings.serviceDisabled;
         break;
+
       case LocationStatus.permissionDenied:
-        errorMessage.value = 'Location permission is required to use this feature.';
-        break;
       case LocationStatus.permissionPermanentlyDenied:
-        errorMessage.value = 'Location permission is permanently denied. Please enable it in app settings.';
+        errorMessage.value = AppStrings.permissionPermanentlyDenied;
         break;
     }
+
     isLoading.value = false;
   }
 
@@ -123,7 +152,7 @@ class HomeController extends GetxController {
   Future<void> drawRoute() async {
     if (markers.length < 2) return;
     if (!await connectivityHelper.hasConnection()) {
-      showError('No Internet Connection');
+      showError(AppStrings.noInternet);
       return;
     }
 
@@ -152,7 +181,6 @@ class HomeController extends GetxController {
       ));
     } catch (e) {
       showError(e.toString());
-      // On error, remove the last added marker to allow re-selection
       markers.remove(markers.last);
     } finally {
       isLoading.value = false;
@@ -192,17 +220,22 @@ class HomeController extends GetxController {
 
   @override
   void onClose() {
+    WidgetsBinding.instance.removeObserver(this);
     _connectivitySubscription?.cancel();
+    _gpsCheckTimer?.cancel();
     mapController?.dispose();
     super.onClose();
   }
-
-  // After (Public)
   void animateToPosition(LatLng position, {double zoom = 14.0}) {
     mapController?.animateCamera(CameraUpdate.newCameraPosition(
       CameraPosition(target: position, zoom: zoom),
     ));
   }
-
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      checkPermissionsAndGetLocation();
+    }
+  }
 
 }

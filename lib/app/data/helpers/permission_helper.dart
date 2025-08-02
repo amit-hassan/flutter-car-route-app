@@ -1,8 +1,7 @@
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-// Enum to represent different outcomes
-enum LocationStatus { granted, serviceDisabled, permissionDenied, permissionPermanentlyDenied }
+enum LocationStatus { granted, serviceDisabled, permissionDenied, permissionPermanentlyDenied}
 
 class PermissionHelper {
   Future<LocationStatus> checkLocationPermission() async {

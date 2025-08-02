@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_car_route_app/app/data/helpers/helpers.dart';
+import 'package:flutter_car_route_app/app/shared/constants/constants.dart';
 import 'package:flutter_car_route_app/app/shared/widgets/widgets.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'home_controller.dart';
@@ -15,25 +18,50 @@ class HomeView extends GetView<HomeController> {
         if (controller.isLoading.value && controller.currentPosition.value == null) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (controller.errorMessage.value != null && controller.currentPosition.value == null) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Text(
-                controller.errorMessage.value!,
-                style: const TextStyle(fontSize: 18, color: Colors.red),
-                textAlign: TextAlign.center,
-              ),
-            ),
+        // Location service is disabled
+        if (controller.gpsStatus.value == LocationStatus.serviceDisabled) {
+          return FullScreenErrorMessage(
+            message: AppStrings.enableGpsMessage,
+            buttonText: AppStrings.openLocationSettings,
+            onPressed: () async {
+              await Geolocator.openLocationSettings();
+              Future.delayed(const Duration(seconds: 1), () {
+                controller.checkPermissionsAndGetLocation();
+              });
+            },
           );
         }
 
-        // Main Map UI
+        // Location permission denied
+        if (controller.gpsStatus.value == LocationStatus.permissionDenied ||
+            controller.gpsStatus.value == LocationStatus.permissionPermanentlyDenied) {
+          return FullScreenErrorMessage(
+            message: AppStrings.permissionRequiredMessage,
+            buttonText: AppStrings.openAppSettings,
+            onPressed: () async {
+              await Geolocator.openAppSettings();
+              Future.delayed(const Duration(seconds: 1), () {
+                controller.checkPermissionsAndGetLocation();
+              });
+            },
+          );
+        }
+
+        // Error fallback
+        if (controller.errorMessage.value != null &&
+            controller.currentPosition.value == null) {
+          return FullScreenErrorMessage(
+            message: controller.errorMessage.value!,
+            buttonText: AppStrings.retry,
+            onPressed: controller.checkPermissionsAndGetLocation,
+          );
+        }
+
         return Stack(
           children: [
             GoogleMap(
               initialCameraPosition: CameraPosition(
-                target: controller.currentPosition.value ?? const LatLng(23.8103, 90.4125), // Dhaka fallback
+                target: controller.currentPosition.value ?? const LatLng(23.8103, 90.4125), // Dhaka
                 zoom: 14,
               ),
               onMapCreated: controller.onMapCreated,
@@ -44,7 +72,6 @@ class HomeView extends GetView<HomeController> {
               myLocationEnabled: true,
               zoomControlsEnabled: false,
             ),
-            // Show loading indicator over map when fetching route
             if (controller.isLoading.value && controller.currentPosition.value != null)
               const Center(child: CircularProgressIndicator()),
 
@@ -66,11 +93,11 @@ class HomeView extends GetView<HomeController> {
       child: Obx(() {
         String text;
         if (controller.markers.isEmpty) {
-          text = 'Tap to select an origin point';
+          text = AppStrings.selectOrigin;
         } else if (controller.markers.length == 1) {
-          text = 'Tap to select a destination point';
+          text = AppStrings.selectDestination;
         } else {
-          return const SizedBox.shrink(); // Hide when route is shown
+          return const SizedBox.shrink();
         }
         return InfoCard(text: text);
       }),
