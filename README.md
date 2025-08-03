@@ -142,7 +142,7 @@ flutter_car_route_app/
 
 1. **Clone Repository**
    ```bash
-   git clone [https://github.com/<your-username>/car_route_app.git](https://github.com/amit-hassan/flutter-car-route-app)
+   git clone [https://github.com/amit-hassan/flutter-car-route-app]
    cd car_route_app
 
 ## 🛠 Technology Stack
