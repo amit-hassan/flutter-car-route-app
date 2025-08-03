@@ -29,7 +29,7 @@ void main() {
 
     // Tap the button
     await tester.tap(find.byType(ElevatedButton));
-    await tester.pump(); // Rebuilds the widget
+    await tester.pump();
 
     // Verify the text changes
     expect(find.text('After Tap'), findsOneWidget);

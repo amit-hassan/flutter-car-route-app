@@ -14,11 +14,10 @@ class HomeView extends GetView<HomeController> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Obx(() {
-        // Full screen error/loading for initial setup
-        if (controller.isLoading.value && controller.currentPosition.value == null) {
+        if (controller.isLoading.value &&
+            controller.currentPosition.value == null) {
           return const Center(child: CircularProgressIndicator());
         }
-        // Location service is disabled
         if (controller.gpsStatus.value == LocationStatus.serviceDisabled) {
           return FullScreenErrorMessage(
             message: AppStrings.enableGpsMessage,
@@ -32,9 +31,9 @@ class HomeView extends GetView<HomeController> {
           );
         }
 
-        // Location permission denied
         if (controller.gpsStatus.value == LocationStatus.permissionDenied ||
-            controller.gpsStatus.value == LocationStatus.permissionPermanentlyDenied) {
+            controller.gpsStatus.value ==
+                LocationStatus.permissionPermanentlyDenied) {
           return FullScreenErrorMessage(
             message: AppStrings.permissionRequiredMessage,
             buttonText: AppStrings.openAppSettings,
@@ -47,7 +46,6 @@ class HomeView extends GetView<HomeController> {
           );
         }
 
-        // Error fallback
         if (controller.errorMessage.value != null &&
             controller.currentPosition.value == null) {
           return FullScreenErrorMessage(
@@ -61,21 +59,21 @@ class HomeView extends GetView<HomeController> {
           children: [
             GoogleMap(
               initialCameraPosition: CameraPosition(
-                target: controller.currentPosition.value ?? const LatLng(23.8103, 90.4125), // Dhaka
+                target: controller.currentPosition.value ??
+                    const LatLng(23.8103, 90.4125),
                 zoom: 14,
               ),
               onMapCreated: controller.onMapCreated,
               onTap: controller.onMapTap,
               markers: controller.markers.value,
               polylines: controller.polylines.value,
-              myLocationButtonEnabled: false, // We use a custom FAB
+              myLocationButtonEnabled: false,
               myLocationEnabled: true,
               zoomControlsEnabled: false,
             ),
-            if (controller.isLoading.value && controller.currentPosition.value != null)
+            if (controller.isLoading.value &&
+                controller.currentPosition.value != null)
               const Center(child: CircularProgressIndicator()),
-
-            // UI Overlays
             _buildTopInstructionCard(),
             _buildRouteInfoCard(),
             _buildActionButtons(),
@@ -87,52 +85,143 @@ class HomeView extends GetView<HomeController> {
 
   Widget _buildTopInstructionCard() {
     return Positioned(
-      top: 50,
-      left: 16,
-      right: 16,
-      child: Obx(() {
-        String text;
-        if (controller.markers.isEmpty) {
-          text = AppStrings.selectOrigin;
-        } else if (controller.markers.length == 1) {
-          text = AppStrings.selectDestination;
-        } else {
-          return const SizedBox.shrink();
-        }
-        return InfoCard(text: text);
-      }),
+      top: 0,
+      left: 0,
+      right: 0,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Top blue address card
+          Container(
+            padding: const EdgeInsets.only(top: 40, bottom: 20, left: 12, right: 12),
+            color: Colors.blue[700],
+            child: Row(
+              children: [
+                const Icon(Icons.directions_car_filled_outlined, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Obx(() => _buildAddressRow("from: ", controller.originName.value ?? '...')),
+                      const Divider(color: Colors.white54, thickness: 0.5, height: 16),
+                      Obx(() => _buildAddressRow("to: ", controller.destinationName.value ?? '...')),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: controller.clearRoute,
+                ),
+              ],
+            ),
+          ),
+
+          // Centered instruction message below blue card
+          Obx(() {
+            String text;
+            if (controller.markers.isEmpty) {
+              text = AppStrings.selectOrigin;
+            } else if (controller.markers.length == 1) {
+              text = AppStrings.selectDestination;
+            } else {
+              return const SizedBox.shrink();
+            }
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Center(
+                child: InfoCard(text: text),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAddressRow(String label, String value) {
+    return Row(
+      children: [
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w500),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(color: Colors.white, fontSize: 18),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1, // Good practice to prevent wrapping
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildRouteInfoCard() {
     return Obx(() {
-      if (controller.distance.value == null || controller.duration.value == null) {
+      if (controller.distance.value == null ||
+          controller.duration.value == null) {
         return const SizedBox.shrink();
       }
+
       return Positioned(
-        bottom: 30,
-        left: 16,
-        right: 16,
-        child: InfoCard(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        bottom: 0,
+        left: 0,
+        right: 0,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(16),
+              topRight: Radius.circular(16),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black12,
+                blurRadius: 10,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _infoItem(Icons.social_distance, controller.distance.value!),
-              _infoItem(Icons.timer_outlined, controller.duration.value!),
+              Row(
+                children: [
+                  RichText(
+                    text: TextSpan(
+                      style: const TextStyle(color: Colors.black),
+                      children: [
+                        TextSpan(
+                          text: "${controller.duration.value!} ",
+                          style: const TextStyle(
+                              fontSize: 22, fontWeight: FontWeight.bold),
+                        ),
+                        TextSpan(
+                          text: "(${controller.distance.value!})",
+                          style: const TextStyle(
+                              color: Colors.black54, fontSize: 16),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                "via A41",
+                style: TextStyle(color: Colors.black54, fontSize: 14),
+              ),
             ],
           ),
         ),
       );
     });
   }
-
-  Widget _infoItem(IconData icon, String text) => Row(
-    children: [
-      Icon(icon, color: Colors.blueAccent),
-      const SizedBox(width: 8),
-      Text(text, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-    ],
-  );
 
   Widget _buildActionButtons() {
     return Positioned(
@@ -154,16 +243,15 @@ class HomeView extends GetView<HomeController> {
           const SizedBox(height: 10),
           Obx(() => controller.markers.isNotEmpty
               ? FloatingActionButton(
-            heroTag: 'clear_btn',
-            mini: true,
-            backgroundColor: Colors.redAccent,
-            child: const Icon(Icons.clear, color: Colors.white),
-            onPressed: controller.clearRoute,
-          )
+                  heroTag: 'clear_btn',
+                  mini: true,
+                  backgroundColor: Colors.redAccent,
+                  child: const Icon(Icons.clear, color: Colors.white),
+                  onPressed: controller.clearRoute,
+                )
               : const SizedBox.shrink()),
         ],
       ),
     );
   }
-
 }

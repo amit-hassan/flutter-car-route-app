@@ -5,11 +5,13 @@ class DirectionsModel {
   final List<LatLng> polylinePoints;
   final String distance;
   final String duration;
+  final String routeName;
 
   DirectionsModel({
     required this.polylinePoints,
     required this.distance,
     required this.duration,
+    required this.routeName,
   });
 
   factory DirectionsModel.fromJson(Map<String, dynamic> json) {
@@ -18,8 +20,8 @@ class DirectionsModel {
 
     final distance = leg['distance']['text'];
     final duration = leg['duration']['text'];
+    final routeName = route['summary'] ?? 'Best Route';
 
-    // Decode polyline
     final polyline = route['overview_polyline']['points'];
     final polylinePoints = PolylinePoints().decodePolyline(polyline)
         .map((e) => LatLng(e.latitude, e.longitude))
@@ -29,7 +31,9 @@ class DirectionsModel {
       polylinePoints: polylinePoints,
       distance: distance,
       duration: duration,
+      routeName: routeName,
     );
   }
 }
+
 

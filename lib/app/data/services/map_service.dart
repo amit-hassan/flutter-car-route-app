@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 class MapService {
@@ -10,7 +11,6 @@ class MapService {
   late BitmapDescriptor originIcon;
   late BitmapDescriptor destinationIcon;
   late BitmapDescriptor currentLocationIcon;
-
 
   /// Initialize custom markers
   Future<void> initCustomMarkers() async {
@@ -28,9 +28,11 @@ class MapService {
   }
 
   /// Called when the map is created
-  void onMapCreated(GoogleMapController controller, {bool isDarkMode = false, String? darkMapStyle}) {
+  void onMapCreated(GoogleMapController controller,
+      {bool isDarkMode = false, String? darkMapStyle}) {
     mapController = controller;
-    mapController.setMapStyle(isDarkMode && darkMapStyle != null ? darkMapStyle : null);
+    mapController
+        .setMapStyle(isDarkMode && darkMapStyle != null ? darkMapStyle : null);
   }
 
   Marker createOriginMarker(LatLng position) {
@@ -59,5 +61,32 @@ class MapService {
       southwest: LatLng(swLat, swLng),
       northeast: LatLng(neLat, neLng),
     );
+  }
+
+  Future<String> getAddressFromLatLng(LatLng position) async {
+    try {
+      final placemarks = await placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
+      );
+
+      if (placemarks.isNotEmpty) {
+        final place = placemarks.first;
+
+        final parts = [
+          place.street,
+          place.subLocality,
+          place.locality,
+        ];
+
+        final readable =
+            parts.where((e) => e != null && e.trim().isNotEmpty).join(', ');
+        return readable.isNotEmpty ? readable : "Unknown location";
+      }
+
+      return "Unknown location";
+    } catch (e) {
+      return "Unknown location";
+    }
   }
 }
