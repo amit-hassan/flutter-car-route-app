@@ -15,6 +15,20 @@ This project is built following **production-level coding standards** with **Get
 - ✅ **Real-time Route Display**
   - Fetches and displays **optimal car route** using Google Directions API.
   - Shows **distance & estimated travel time**.
+ 
+  ## 🔐 API Key Security
+
+This application integrates with **Google Maps SDK** and **Google Directions API** for route planning.
+
+### How API Keys are Handled
+- API keys are **not hardcoded** in the public repository.
+- Keys are **stored securely** using:
+  - **Local environment variables** for development (Android Studio Env Config)
+  - **AndroidManifest placeholders** for debug builds (Local.properties file in Android folder)
+- The **debug APK** includes a **development key** to demonstrate full functionality.
+
+> ⚠️ For production deployment, API keys should be restricted to your app’s SHA-1 and package name to prevent unauthorized usage.
+
 
 ### **Bonus Features**
 - ✅ **Robust State Management**
