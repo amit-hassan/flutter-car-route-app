@@ -31,7 +31,7 @@ dependencies:
 
   # JSON
   json_annotation: ^4.9.0
-  geocoding: ^4.0.0
+  geocoding: ^2.1.0
 
 
 dev_dependencies:

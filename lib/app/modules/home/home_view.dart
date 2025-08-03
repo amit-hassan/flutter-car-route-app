@@ -93,7 +93,7 @@ class HomeView extends GetView<HomeController> {
         children: [
           // Top blue address card
           Container(
-            padding: const EdgeInsets.only(top: 40, bottom: 20, left: 12, right: 12),
+            padding: const EdgeInsets.only(top: 48, bottom: 15, left: 12, right: 12),
             color: Colors.blue[700],
             child: Row(
               children: [
@@ -213,8 +213,8 @@ class HomeView extends GetView<HomeController> {
               ),
               const SizedBox(height: 4),
               const Text(
-                "via A41",
-                style: TextStyle(color: Colors.black54, fontSize: 14),
+                "Drive - fastest route, despite the usual traffic",
+                style: TextStyle(color: Colors.black54, fontSize: 14, fontWeight: FontWeight.w500),
               ),
             ],
           ),
